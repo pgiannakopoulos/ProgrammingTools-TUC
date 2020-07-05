@@ -1,0 +1,148 @@
+#!/bin/bash
+file=$1
+x=0
+counter=0
+declare -a teamsArray
+declare -a teamsLast
+declare -a tiedTeams
+declare -a tiedGoalsFor
+declare -a tiedGoalsAgainst
+
+while IFS= read -r line; do #the file that contains the games is being examined
+#for each game, the value is stored in a specific variable
+	teams="$(cut -d':' -f1 <<<"$line")"
+	goals="$(cut -d':' -f2 <<<"$line")"
+	
+	team1="$(cut -d'-' -f1 <<<"$teams")"
+	team2="$(cut -d'-' -f2 <<<"$teams")"
+	goal1="$(cut -d'-' -f1 <<<"$goals")"
+	goal2="$(cut -d'-' -f2 <<<"$goals")"
+#points are awarded according to result
+	if [ "$goal1" -gt "$goal2" ]; then
+		pointsHome=3
+		pointsAway=0
+	elif [ "$goal1" -lt "$goal2" ]; then
+		pointsHome=0
+		pointsAway=3
+	else
+		pointsHome=1
+		pointsAway=1
+	fi
+#a file with each team is created or updated, whether there is a game with this team before or not
+	if test -f "$team1"; then
+		read -r line < "$team1"
+		points="$(cut -d'-' -f1 <<<"$line")"
+		goalsFor="$(cut -d'-' -f2 <<<"$line")"
+		goalsAgaist="$(cut -d'-' -f3 <<<"$line")"
+		
+		points=$(($points+$pointsHome))
+		goalsFor=$(($goalsFor+$goal1))
+		goalsAgaist=$(($goalsAgaist+$goal2))
+		
+		echo "$points-$goalsFor-$goalsAgaist" > "$team1"
+	else
+		touch "$team1"
+		teamsArray[$counter]="$team1"
+		let counter=counter+1
+		echo "$pointsHome-$goal1-$goal2" > "$team1"
+	fi
+
+	if test -f "$team2"; then
+		read -r line < "$team2"
+		points="$(cut -d'-' -f1 <<<"$line")"
+		goalsFor="$(cut -d'-' -f2 <<<"$line")"
+		goalsAgaist="$(cut -d'-' -f3 <<<"$line")"
+
+		points=$(($points+$pointsAway))
+		goalsFor=$(($goalsFor+$goal2))
+		goalsAgaist=$(($goalsAgaist+$goal1))
+		
+		echo "$points-$goalsFor-$goalsAgaist" > "$team2"
+	else
+		touch "$team2"
+		teamsArray[$counter]="$team2"
+		let counter=counter+1
+		echo "$pointsAway-$goal2-$goal1" > $team2
+	fi
+done < "$file" #games file stops being read
+
+#the creation of the teams table starts here
+for((i=0; i<= ${#teamsArray[@]}-1; i++)); do
+	savedPoints=-1;
+	tie=0;
+#starting from the best team, according to the total points awarded, the teams are displayed
+	for((j=0; j<= ${#teamsArray[@]} - 1; j++)); do
+		itsin=0
+		for((k=0; k<= ${#teamsLast[@]} - 1; k++)); do
+			if [[ "${teamsLast[$k]}" == "${teamsArray[$j]}" ]]; then
+				itsin=1
+				break
+			fi
+		done
+#if the team has been displayed, it will be ignored
+		if [[  "$itsin" -eq "1" ]]; then
+			continue
+		else
+			read -r line < "${teamsArray[$j]}"
+			points="$(cut -d'-' -f1 <<<"$line")"
+			if [ "$points" -gt  "$savedPoints" ] #in this case a team with more points than the previous ones is found
+				then
+				savedPoints=$points
+				savedTeam="${teamsArray[$j]}"
+				savedGoalsFor="$(cut -d'-' -f2 <<<"$line")"
+				savedGoalsAgainst="$(cut -d'-' -f3 <<<"$line")"
+				tie=0
+				for (( k = 0; k < ${#tiedTeams[@]}; k++ )); do
+					tiedTeams[$k]=""
+					tiedGoalsFor[$k]=-1
+					tiedGoalsAgainst[$k]=-1
+				done
+			elif [[ "$points" -eq  "$savedPoints" ]]; then #teams with the same points are stored differently
+				tiedTeams[$tie]="${teamsArray[$j]}"
+				tiedGoalsFor[$tie]="$(cut -d'-' -f2 <<<"$line")"
+				tiedGoalsAgainst[$tie]="$(cut -d'-' -f3 <<<"$line")"
+				let tie=tie+1;
+			fi
+		fi
+	done
+	
+#teams will be displayed here
+	if [[ "$tie" -eq "0" ]]; then
+		teamsLast[$i]="$savedTeam"
+		let position=$i+1
+		printf "%s"$'\t'"%-20s"$'\t'$'\t'"%s"$'\t'"%s-%s"$'\n' $position "$savedTeam" $savedPoints $savedGoalsFor $savedGoalsAgainst
+		rm "$savedTeam"
+	else			#in this case we have tied teams, so before displaying them, they are sorted according to the rules
+		tiedTeams[$tie]="$savedTeam"
+		tiedGoalsFor[$tie]=$savedGoalsFor
+		tiedGoalsAgainst[$tie]=$savedGoalsAgainst
+		
+		for (( j = 0; j <= $tie; j++ )); do
+			if [[ "$j" -eq "$tie" ]]; then
+				break
+			elif [ "${tiedTeams[$j]}" \> "${tiedTeams[$j+1]}" ]; then
+				temp="${tiedTeams[$j]}"
+				tiedTeams[$j]="${tiedTeams[$j+1]}"
+				tiedTeams[$j+1]="$temp"
+
+				temp=${tiedGoalsFor[$j]}
+				tiedGoalsFor[$j]=${tiedGoalsFor[$j+1]}
+				tiedGoalsFor[$j+1]=$temp
+
+				temp=${tiedGoalsAgainst[$j]}
+				tiedGoalsAgainst[$j]=${tiedGoalsAgainst[$j+1]}
+				tiedGoalsAgainst[$j+1]=$temp
+				j=0
+			fi
+		done
+
+		for (( j = 0; j <= $tie; j++ )); do
+			teamsLast[$i]="${tiedTeams[$j]}"
+			let position=$i+1
+			printf "%s"$'\t'"%-20s"$'\t'$'\t'"%s"$'\t'"%s-%s"$'\n' $position "${tiedTeams[$j]}" $savedPoints ${tiedGoalsFor[$j]} ${tiedGoalsAgainst[$j]}
+			let i=$i+1
+			rm "${tiedTeams[$j]}"
+		done
+		let i=$i-1
+	fi
+done

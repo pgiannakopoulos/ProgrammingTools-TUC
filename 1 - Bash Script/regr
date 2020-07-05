@@ -1,0 +1,74 @@
+#!/bin/bash
+
+declare -a x
+declare -a y
+
+for file in $*
+do
+	#check is the file existes
+	if ! test -f $file; then
+		echo FILE: ${file} does not exists!
+		continue
+	fi
+	
+	#Create a temp file without spaces
+	awk 'NF' $file > 'temp'
+
+	#get the number of lines
+	lines=`wc -l < temp`
+
+	#copy the data to arrays
+	field1=`cut -f1 -d':' temp`
+	field2=`cut -f2 -d':' temp`
+
+	readarray -t x <<<$field1;
+	readarray -t y <<<$field2;
+
+	#Calculate sum_x and sum_y
+	sum_x=0
+	sum_y=0
+	sum_xy=0
+	sum_x2=0
+	err=0
+
+	for (( i = 0; i < ${lines}; i++ )); do
+		sum_x=$(echo "scale=3; ${sum_x} + ${x[$i]}" | bc -l)
+		sum_y=$(echo "scale=3; ${sum_y} + ${y[$i]}" | bc -l)
+		sum_xy=$(echo "scale=3; var1 = ${x[$i]}; var2 = ${y[$i]}; var3 = var1 * var2; ${sum_xy} + var3" | bc -l)
+		sum_x2=$(echo "scale=3; var1 = ${x[$i]}; var1 = var1 ^ 2; var1 + ${sum_x2}" | bc -l)
+	done
+
+	a2=$(echo "scale=2; ${lines} * ${sum_x2} - ${sum_x} * ${sum_x}" | bc -l)
+
+	#Check for constant X case
+	if (( $(echo "${a2} == 0" | bc -l) )); then
+		a=1
+		b=$(echo "scale=2; ${x[1]} * -1" | bc -l)
+		c=0
+		err=0
+		echo FILE: ${file}, a=${a} b=${b} c=${c} err=${err}: undefined case
+	else
+		#Calculate 'a' parameter
+		a1=$(echo "scale=2; ${lines} * ${sum_xy} - ${sum_x} * ${sum_y}" | bc -l)
+		a=$(echo "scale=2; ${a1} / ${a2} " | bc -l)
+
+		#Calculate 'b' parameter
+		b1=$(echo "scale=2; ${sum_y} - ${a} * ${sum_x} " | bc -l)
+		b=$(echo "scale=2;  ${b1} / ${lines} " | bc -l)
+		c=1
+		
+		#Calculate the error
+		for (( i = 0; i < ${lines}; i++ )); do
+			temp_err=$(echo "scale=2;  var1 = ${x[$i]}; ${a} * var1 + ${b}" | bc -l)
+			temp_err=$(echo "scale=2;  var1 = ${y[$i]}; var1 - ${temp_err}" | bc -l)
+			temp_err=$(echo "scale=2;  ${temp_err} ^ 2 " | bc -l)
+			err=$(echo "scale=2;  ${err} + ${temp_err}" | bc -l)
+		done
+
+		echo FILE: ${file}, a=${a} b=${b} c=${c} err=${err}
+
+		#Delete the temp file
+		rm temp
+	fi
+done
+

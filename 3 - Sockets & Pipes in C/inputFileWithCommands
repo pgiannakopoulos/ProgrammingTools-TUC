@@ -1,0 +1,8 @@
+ls
+ls; tr
+cat README.md
+ls
+cat remoteServer.c | grep "some"
+cat remoteClient.c | tr 'p' 'P'
+rm abcd
+cat README.md
